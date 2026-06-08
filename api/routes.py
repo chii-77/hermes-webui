@@ -5233,6 +5233,10 @@ def handle_get(handler, parsed) -> bool:
     if parsed.path == "/api/system/health":
         j(handler, build_system_health_payload())
         return True
+    
+    if parsed.path == "/api/version":
+        j(handler, {"version": "v3", "color": "blue", "feature": "new-version-endpoint"})
+        return True
 
     if parsed.path == "/api/models":
         return j(handler, get_available_models())
