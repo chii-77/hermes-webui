@@ -1,0 +1,88 @@
+name: Blue-Green Deploy WebUI
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+
+    env:
+      BUILD_DIR: /workspace/annie_tmp/build
+      DEPLOY_SH: /workspace/annie_tmp/build/deploy.sh
+      BLUE_PORT: 8787
+      GREEN_PORT: 8788
+
+    steps:
+      - name: Determine idle color
+        id: which
+        run: |
+          ACTIVE=$(bash "$DEPLOY_SH" status | grep "Active color" | awk '{print $3}')
+          if [ "$ACTIVE" = "blue" ]; then
+            IDLE=green; IDLE_PORT=$GREEN_PORT
+          else
+            IDLE=blue;  IDLE_PORT=$BLUE_PORT
+          fi
+          echo "active=$ACTIVE" >> $GITHUB_OUTPUT
+          echo "idle=$IDLE" >> $GITHUB_OUTPUT
+          echo "idle_port=$IDLE_PORT" >> $GITHUB_OUTPUT
+          echo ""
+          echo "Active color : $ACTIVE"
+          echo "Will deploy to: $IDLE (port $IDLE_PORT)"
+
+      - name: Pull latest code into idle slot
+        run: |
+          set -e
+          cd "$BUILD_DIR/hermes-webui-${{ steps.which.outputs.idle }}"
+          git fetch origin main
+          git reset --hard origin/main
+          echo ""
+          echo "Now at: $(git log -1 --oneline)"
+
+      - name: Restart idle instance
+        run: |
+          set -e
+          cd "$BUILD_DIR/hermes-webui-${{ steps.which.outputs.idle }}"
+          HERMES_WEBUI_HOST=0.0.0.0 \
+          HERMES_WEBUI_PORT=${{ steps.which.outputs.idle_port }} \
+          HERMES_WEBUI_PID_FILE=/root/.hermes/webui-${{ steps.which.outputs.idle }}.pid \
+          HERMES_WEBUI_LOG_FILE=/root/.hermes/webui-${{ steps.which.outputs.idle }}.log \
+          ./ctl.sh restart
+
+      - name: Wait for idle to be healthy
+        run: |
+          for i in 1 2 3 4 5 6 7 8; do
+            CODE=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 3 \
+              "http://127.0.0.1:${{ steps.which.outputs.idle_port }}/api/auth/status" 2>/dev/null)
+            if [ "$CODE" = "200" ]; then
+              echo "✓ ${{ steps.which.outputs.idle }} healthy after ${i} tries"
+              exit 0
+            fi
+            echo "  attempt $i/8: HTTP $CODE — waiting..."
+            sleep 2
+          done
+          echo "❌ ${{ steps.which.outputs.idle }} did not come up. Aborting (will NOT switch traffic)."
+          tail -30 /root/.hermes/webui-${{ steps.which.outputs.idle }}.log || true
+          exit 1
+
+      - name: Switch traffic atomically
+        run: bash "$DEPLOY_SH" switch
+
+      - name: Verify public URL serving new version
+        run: |
+          sleep 1
+          CODE=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 5 \
+            -u "annie:95DFxrz259u1Ccx1" \
+            https://bagged-curdle-ceremony.ngrok-free.dev/api/auth/status)
+          echo "Public URL responded: HTTP $CODE"
+          [ "$CODE" = "200" ] || exit 1
+
+      - name: Final status
+        run: |
+          bash "$DEPLOY_SH" status
+          echo ""
+          echo "✓ Deploy complete @ $(date)"
+          echo "  Pushed code is now active on ${{ steps.which.outputs.idle }} (was: ${{ steps.which.outputs.active }})"
+          echo "  Rollback if needed: bash $DEPLOY_SH switch"
