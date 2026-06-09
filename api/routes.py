@@ -5235,7 +5235,7 @@ def handle_get(handler, parsed) -> bool:
         return True
     
     if parsed.path == "/api/version":
-        j(handler, {"version": "v4", "color": "blue", "feature": "ci-cd-demo"})
+        j(handler, {"version": "v4", "color": os.environ.get("HERMES_SLOT_COLOR", "unknown"), "feature": "ci-cd-demo"})
         return True
 
     if parsed.path == "/api/models":

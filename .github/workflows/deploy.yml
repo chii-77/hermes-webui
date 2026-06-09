@@ -41,26 +41,39 @@ jobs:
           echo ""
           echo "Now at: $(git log -1 --oneline)"
 
-      - name: Restart idle instance
+      - name: Restart idle instance (detached, survives job teardown)
         run: |
           set -e
-          cd "$BUILD_DIR/hermes-webui-${{ steps.which.outputs.idle }}"
-          HERMES_WEBUI_HOST=0.0.0.0 \
-          HERMES_WEBUI_PORT=${{ steps.which.outputs.idle_port }} \
-          HERMES_WEBUI_PID_FILE=/root/.hermes/webui-${{ steps.which.outputs.idle }}.pid \
-          HERMES_WEBUI_LOG_FILE=/root/.hermes/webui-${{ steps.which.outputs.idle }}.log \
-          ./ctl.sh restart
+          IDLE=${{ steps.which.outputs.idle }}
+          PORT=${{ steps.which.outputs.idle_port }}
+          cd "$BUILD_DIR/hermes-webui-$IDLE"
+          # 1) Reliably stop this slot's process. pidfiles can be stale, so match by path.
+          pkill -f "hermes-webui-$IDLE/bootstrap.py" 2>/dev/null || true
+          pkill -f "hermes-webui-$IDLE/server.py"    2>/dev/null || true
+          sleep 1
+          # 2) Start DETACHED from the runner job. Both are required:
+          #    setsid                    -> new session, escapes the job's process tree
+          #    env -u RUNNER_TRACKING_ID -> escapes the runner's env-tagged process cleanup
+          #    Without both, the runner kills this daemon when the job ends.
+          setsid env -u RUNNER_TRACKING_ID \
+            HERMES_WEBUI_HOST=0.0.0.0 \
+            HERMES_WEBUI_PORT=$PORT \
+            HERMES_WEBUI_PID_FILE=/root/.hermes/webui-$IDLE.pid \
+            HERMES_WEBUI_LOG_FILE=/root/.hermes/webui-$IDLE.log \
+            HERMES_SLOT_COLOR=$IDLE \
+            ./ctl.sh start </dev/null >/tmp/ctl-$IDLE.out 2>&1 || true
+          cat /tmp/ctl-$IDLE.out 2>/dev/null || true
 
       - name: Wait for idle to be healthy
         run: |
-          for i in 1 2 3 4 5 6 7 8; do
+          for i in $(seq 1 20); do
             CODE=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 3 \
               "http://127.0.0.1:${{ steps.which.outputs.idle_port }}/api/auth/status" 2>/dev/null)
             if [ "$CODE" = "200" ]; then
               echo "✓ ${{ steps.which.outputs.idle }} healthy after ${i} tries"
               exit 0
             fi
-            echo "  attempt $i/8: HTTP $CODE — waiting..."
+            echo "  attempt $i/20: HTTP $CODE — waiting..."
             sleep 2
           done
           echo "❌ ${{ steps.which.outputs.idle }} did not come up. Aborting (will NOT switch traffic)."
