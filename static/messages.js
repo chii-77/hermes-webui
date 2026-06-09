@@ -1660,7 +1660,10 @@ function attachLiveStream(activeSid, streamId, uploaded=[], options={}){
   // Allowed URL schemes for anchors and images rendered from agent-streamed markdown.
   // Raw file:// anchors are rewritten to /api/media before the user can click them.
   const _SMD_SAFE_URL_RE=/^(?:https?:|mailto:|tel:|\/|#|\?|\.|api|session\/)/i;
-  const _SMD_SAFE_IMG_URL_RE=/^(?:https?:|mailto:|tel:|\/|#|\?|\.)/i;
+  // data:image/ allowed so agent tools can return inline images (e.g. generated
+  // QR codes). Scoped to image/ only — never data:text/html etc. Inline image
+  // bytes can't execute script or make network requests, so this is low-risk.
+  const _SMD_SAFE_IMG_URL_RE=/^(?:https?:|data:image\/|mailto:|tel:|\/|#|\?|\.)/i;
   function _smdLinkHref(raw){
     const href=String(raw||'');
     if(/^session:\/\//i.test(href)){
