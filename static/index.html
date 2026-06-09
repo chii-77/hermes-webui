@@ -117,7 +117,8 @@
   </script>
 </head>
 <body>
-<div style="position:fixed;top:8px;right:8px;z-index:99999;background:#4a90e2;color:#fff;padding:8px 14px;border-radius:8px;font-family:system-ui,sans-serif;font-size:13px;font-weight:700;box-shadow:0 4px 12px rgba(74,144,226,0.5);pointer-events:none;letter-spacing:0.3px;">🔵 BLUE — v3</div>
+<div id="deploy-slot-badge" style="position:fixed;top:8px;right:8px;z-index:99999;background:#666;color:#fff;padding:8px 14px;border-radius:8px;font-family:system-ui,sans-serif;font-size:13px;font-weight:700;box-shadow:0 4px 12px rgba(0,0,0,0.35);pointer-events:none;letter-spacing:0.3px;">⚪ —</div>
+<script>(function(){var C={blue:'#4a90e2',green:'#2ecc71'},E={blue:'🔵',green:'🟢'},S={blue:'rgba(74,144,226,0.5)',green:'rgba(46,204,113,0.5)'};fetch('/api/version').then(function(r){return r.json();}).then(function(d){var el=document.getElementById('deploy-slot-badge');if(!el)return;var c=(d&&d.color)?String(d.color):'unknown',v=(d&&d.version)?String(d.version):'';el.textContent=(E[c]||'⚪')+' '+c.toUpperCase()+(v?' — '+v:'');el.style.background=C[c]||'#666';el.style.boxShadow='0 4px 12px '+(S[c]||'rgba(0,0,0,0.35)');}).catch(function(){var el=document.getElementById('deploy-slot-badge');if(el)el.textContent='⚪ unknown';});})()</script>
 <header class="app-titlebar" role="banner">
   <button class="app-titlebar-hamburger has-tooltip has-tooltip--bottom" id="btnHamburger" onclick="toggleMobileSidebar()" type="button" data-tooltip="Menu" aria-label="Menu">
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
