@@ -1778,6 +1778,21 @@ function applyBotName(){
   try{
     const s=await api('/api/settings');
     _bootSettings=s;
+    // Always-visible version badge in the titlebar so the running build is
+    // identifiable at a glance (e.g. to confirm a blue-green deploy flipped)
+    // without opening Settings. Mirrors the settings-panel version badges.
+    try{
+      const vb=document.getElementById('appTitlebarVersion');
+      if(vb){
+        const wv=(s.webui_version||'').toString().trim();
+        if(wv){
+          vb.textContent=wv;
+          const av=(s.agent_version||'').toString().trim();
+          vb.dataset.tooltip='WebUI '+wv+(av?(' · Agent '+av):'')+' — click for details';
+          vb.hidden=false;
+        }
+      }
+    }catch(_){}
     window._sendKey=s.send_key||'enter';
     window._showTokenUsage=!!s.show_token_usage;
     window._showQuotaChip=s.show_quota_chip===true;

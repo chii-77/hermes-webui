@@ -5421,10 +5421,16 @@ def save_settings(settings: dict) -> dict:
     )
     persisted = {k: v for k, v in current.items() if k != "default_model"}
     SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    SETTINGS_FILE.write_text(
-        json.dumps(persisted, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    # Atomic write (temp + os.replace) so a torn file can never be observed.
+    # This matters during blue-green deploys, where two WebUI processes may
+    # briefly share the same state dir: a half-written settings.json would
+    # break load_settings() on the next boot. Mirrors the models-cache write.
+    _tmp_settings = f"{SETTINGS_FILE}.{os.getpid()}.tmp"
+    with open(_tmp_settings, "w", encoding="utf-8") as _f:
+        _f.write(json.dumps(persisted, ensure_ascii=False, indent=2))
+        _f.flush()
+        os.fsync(_f.fileno())
+    os.replace(_tmp_settings, str(SETTINGS_FILE))
     # Invalidate the in-memory password hash cache so the next call to
     # get_password_hash() picks up the new value from disk immediately.
     if _password_changed:

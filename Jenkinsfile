@@ -25,15 +25,15 @@ docker run --rm -v "$PWD":/src -w /src python:3.12-slim sh -c '
     }
     stage('Deploy') {
       steps {
+        // Zero-downtime blue-green: Caddy owns the public port and stays up;
+        // the script starts the idle color on the new image, waits for health,
+        // flips Caddy's upstream with a graceful reload, then drains the old.
+        // On failure before the flip the previous color keeps serving.
         sh '''
-docker rm -f "$NAME" 2>/dev/null || true
-docker run -d --name "$NAME" -p "$PORT:8787" -e HERMES_WEBUI_HOST=0.0.0.0 -e HERMES_WEBUI_PORT=8787 -e HERMES_WEBUI_STATE_DIR=/workspace/state "$IMAGE"
-for i in $(seq 1 60); do
-  H=$(docker inspect --format "{{.State.Health.Status}}" "$NAME" 2>/dev/null) || H=none
-  [ "$H" = "healthy" ] && { echo "OK healthy after $i"; exit 0; }
-  echo "attempt $i/60: health=$H"; sleep 3
-done
-echo "FAIL"; docker logs --tail 60 "$NAME"; exit 1
+IMAGE="$IMAGE" PUBLIC_PORT="$PORT" \
+  STATE_VOLUME=hermes-webui-ci-state \
+  STATE_DIR=/workspace/state \
+  scripts/deploy-bluegreen.sh
 '''
       }
     }
