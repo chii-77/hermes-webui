@@ -9,10 +9,11 @@ pipeline {
         sh '''
 docker run --rm -v "$PWD":/src -w /src python:3.12-slim sh -c '
   set -e
-  apt-get update -qq && apt-get install -y -qq git >/dev/null
+  apt-get update -qq && apt-get install -y -qq git nodejs >/dev/null
   git config --global user.email ci@local
   git config --global user.name CI
   git config --global --add safe.directory /src
+  node --version
   pip install -q "pyyaml>=6.0" pytest pytest-timeout pytest-asyncio
   pip install -q ruff mcp 2>/dev/null || true
   pytest tests/ -q --timeout=60
