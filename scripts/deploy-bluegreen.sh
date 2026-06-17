@@ -49,6 +49,9 @@ WORKSPACE_MOUNT="${WORKSPACE_MOUNT:-}"
 WEBUI_PASSWORD="${WEBUI_PASSWORD:-}"
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-180}"
 DRAIN_SECONDS="${DRAIN_SECONDS:-8}"
+# Pre-blue-green deploys ran a single container bound to the public port.
+# Removed once during migration so Caddy can claim the port; no-op afterwards.
+LEGACY_CONTAINER="${LEGACY_CONTAINER:-hermes-webui-ci}"
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEPLOY_DIR="$REPO_DIR/deploy"
@@ -68,6 +71,22 @@ ensure_infra() {
 		log "creating volume $STATE_VOLUME"; docker volume create "$STATE_VOLUME" >/dev/null
 	}
 	if ! docker ps --format '{{.Names}}' | grep -qx "$CADDY_NAME"; then
+		# Free the public port before Caddy claims it. Remove ANY leftover
+		# container still publishing it — the legacy single-container deploy,
+		# or a half-created Caddy from a previously failed run (a failed
+		# `docker run -p` leaves the container holding the port until removed).
+		# Safe: this block only runs when Caddy isn't already up, so it can
+		# never kill a healthy Caddy. No-op once migrated.
+		local stale_ids
+		stale_ids="$(docker ps -aq --filter "publish=${PUBLIC_PORT}" 2>/dev/null || true)"
+		if [ -n "$stale_ids" ]; then
+			log "freeing public port $PUBLIC_PORT from stale container(s): $(echo "$stale_ids" | tr '\n' ' ')"
+			docker rm -f $stale_ids >/dev/null 2>&1 || true
+		fi
+		if [ -n "$LEGACY_CONTAINER" ] && docker ps -a --format '{{.Names}}' | grep -qx "$LEGACY_CONTAINER"; then
+			log "removing legacy pre-blue-green container: $LEGACY_CONTAINER"
+			docker rm -f "$LEGACY_CONTAINER" >/dev/null 2>&1 || true
+		fi
 		log "starting Caddy ($CADDY_NAME) on public port $PUBLIC_PORT"
 		docker rm -f "$CADDY_NAME" >/dev/null 2>&1 || true
 		docker run -d --name "$CADDY_NAME" --network "$NET" --restart unless-stopped \
