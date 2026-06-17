@@ -34,10 +34,10 @@ def post(path, body=None):
 # ── Theme settings ───────────────────────────────────────────────────────
 
 def test_settings_default_theme():
-    """Default theme should be 'light'."""
+    """Default theme should be 'dark'."""
     d, status = get("/api/settings")
     assert status == 200
-    assert d.get("theme") == "light"
+    assert d.get("theme") == "dark"
 
 
 def test_settings_set_theme_light_persists():
@@ -48,8 +48,8 @@ def test_settings_set_theme_light_persists():
         d2, _ = get("/api/settings")
         assert d2.get("theme") == "light"
     finally:
-        # Reset to default
-        post("/api/settings", {"theme": "light"})
+        # Reset to dark
+        post("/api/settings", {"theme": "dark"})
 
 
 def test_settings_set_theme_light():
@@ -59,7 +59,7 @@ def test_settings_set_theme_light():
         d, _ = get("/api/settings")
         assert d.get("theme") == "light"
     finally:
-        post("/api/settings", {"theme": "light"})
+        post("/api/settings", {"theme": "dark"})
 
 
 def test_settings_set_theme_system():
@@ -69,7 +69,7 @@ def test_settings_set_theme_system():
         d, _ = get("/api/settings")
         assert d.get("theme") == "system"
     finally:
-        post("/api/settings", {"theme": "light"})
+        post("/api/settings", {"theme": "dark"})
 
 
 def test_settings_set_skin():
@@ -101,7 +101,7 @@ def test_settings_legacy_theme_maps_to_dark_skin_pair():
         assert d2.get("theme") == "dark"
         assert d2.get("skin") == "slate"
     finally:
-        post("/api/settings", {"theme": "light", "skin": "default"})
+        post("/api/settings", {"theme": "dark", "skin": "default"})
 
 
 def test_settings_legacy_monokai_maps_to_sisyphus_skin():
@@ -113,19 +113,19 @@ def test_settings_legacy_monokai_maps_to_sisyphus_skin():
         assert d2.get("theme") == "dark"
         assert d2.get("skin") == "sisyphus"
     finally:
-        post("/api/settings", {"theme": "light", "skin": "default"})
+        post("/api/settings", {"theme": "dark", "skin": "default"})
 
 
-def test_settings_unknown_theme_falls_back_to_light_default():
+def test_settings_unknown_theme_falls_back_to_dark_default():
     """Unknown themes should normalize to a safe canonical appearance."""
     try:
         d, status = post("/api/settings", {"theme": "my-custom-theme"})
         assert status == 200
         d2, _ = get("/api/settings")
-        assert d2.get("theme") == "light"
+        assert d2.get("theme") == "dark"
         assert d2.get("skin") == "default"
     finally:
-        post("/api/settings", {"theme": "light", "skin": "default"})
+        post("/api/settings", {"theme": "dark", "skin": "default"})
 
 
 def test_settings_invalid_skin_falls_back_to_default():
@@ -161,7 +161,7 @@ def test_theme_does_not_break_other_settings():
         assert d_after.get("send_key") == send_key_before
         assert d_after.get("theme") == "light"
     finally:
-        post("/api/settings", {"theme": "light"})
+        post("/api/settings", {"theme": "dark"})
 
 
 def test_theme_survives_round_trip():
@@ -172,4 +172,4 @@ def test_theme_survives_round_trip():
         assert status == 200
         assert d["theme"] == "light"
     finally:
-        post("/api/settings", {"theme": "light"})
+        post("/api/settings", {"theme": "dark"})

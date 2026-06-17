@@ -1595,7 +1595,7 @@ function _normalizeAppearance(theme,skin){
   const rawTheme=typeof theme==='string'?theme.trim().toLowerCase():'';
   const rawSkin=typeof skin==='string'?skin.trim().toLowerCase():'';
   const legacy=_LEGACY_THEME_MAP[rawTheme];
-  const nextTheme=legacy?legacy.theme:(_VALID_THEMES.has(rawTheme)?rawTheme:'light');
+  const nextTheme=legacy?legacy.theme:(_VALID_THEMES.has(rawTheme)?rawTheme:'dark');
   const nextSkin=_VALID_SKINS.has(rawSkin)?rawSkin:(legacy?legacy.skin:'default');
   return {theme:nextTheme,skin:nextSkin};
 }
