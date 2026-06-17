@@ -4,6 +4,22 @@ pipeline {
   triggers { pollSCM('H/5 * * * *') }
   environment { NAME = 'hermes-webui-ci'; IMAGE = 'hermes-webui:ci'; PORT = '8899' }
   stages {
+    stage('Test: pytest (gate)') {
+      steps {
+        sh '''
+docker run --rm -v "$PWD":/src -w /src python:3.12-slim sh -c '
+  set -e
+  apt-get update -qq && apt-get install -y -qq git >/dev/null
+  git config --global user.email ci@local
+  git config --global user.name CI
+  git config --global --add safe.directory /src
+  pip install -q "pyyaml>=6.0" pytest pytest-timeout pytest-asyncio
+  pip install -q ruff mcp 2>/dev/null || true
+  pytest tests/ -q --timeout=60
+'
+'''
+      }
+    }
     stage('Build') {
       steps { sh 'docker build -t "$IMAGE" .' }
     }
