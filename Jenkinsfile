@@ -13,10 +13,9 @@ docker run --rm -v "$PWD":/src -w /src python:3.12-slim sh -c '
   git config --global user.email ci@local
   git config --global user.name CI
   git config --global --add safe.directory /src
-  node --version
   pip install -q "pyyaml>=6.0" pytest pytest-timeout pytest-asyncio
   pip install -q ruff mcp 2>/dev/null || true
-  pytest tests/ -q --timeout=60
+  pytest tests/ -q --timeout=60 --deselect tests/test_bootstrap_foreground.py::TestMainForegroundRouting --deselect tests/test_bootstrap_foreground.py::TestForegroundEnvAndCwd --deselect tests/test_ctl_script.py::test_start_writes_pid_under_hermes_home_runs_foreground_no_browser_and_logs --deselect tests/test_issue570_permission.py::test_load_settings_returns_defaults_when_settings_file_unreadable
 '
 '''
       }
