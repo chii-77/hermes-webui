@@ -1778,6 +1778,20 @@ function applyBotName(){
   try{
     const s=await api('/api/settings');
     _bootSettings=s;
+    window._sendKey=s.send_key||'enter';
+    window._showTokenUsage=!!s.show_token_usage;
+    window._showQuotaChip=s.show_quota_chip===true;
+    window._hideEmptyStateSuggestions=s.hide_empty_state_suggestions===true;
+    applyEmptyStateSuggestionPref();
+    window._showTps=!!s.show_tps;
+    window._fadeTextEffect=!!s.fade_text_effect;
+    window._showCliSessions=!!s.show_cli_sessions;
+    window._showPreviousMessagingSessions=!!s.show_previous_messaging_sessions;
+    window._soundEnabled=!!s.sound_enabled;
+    window._notificationsEnabled=!!s.notifications_enabled;
+    // Persist default workspace so the blank new-chat page can show it
+    // and workspace actions (New file/folder) work before the first session (#804).
+    if(s.default_workspace) S._profileDefaultWorkspace=s.default_workspace;
     // Always-visible version badge in the titlebar so the running build is
     // identifiable at a glance (e.g. to confirm a blue-green deploy flipped)
     // without opening Settings. Mirrors the settings-panel version badges.
@@ -1793,20 +1807,6 @@ function applyBotName(){
         }
       }
     }catch(_){}
-    window._sendKey=s.send_key||'enter';
-    window._showTokenUsage=!!s.show_token_usage;
-    window._showQuotaChip=s.show_quota_chip===true;
-    window._hideEmptyStateSuggestions=s.hide_empty_state_suggestions===true;
-    applyEmptyStateSuggestionPref();
-    window._showTps=!!s.show_tps;
-    window._fadeTextEffect=!!s.fade_text_effect;
-    window._showCliSessions=!!s.show_cli_sessions;
-    window._showPreviousMessagingSessions=!!s.show_previous_messaging_sessions;
-    window._soundEnabled=!!s.sound_enabled;
-    window._notificationsEnabled=!!s.notifications_enabled;
-    // Persist default workspace so the blank new-chat page can show it
-    // and workspace actions (New file/folder) work before the first session (#804).
-    if(s.default_workspace) S._profileDefaultWorkspace=s.default_workspace;
     window._whatsNewSummaryEnabled=!!s.whats_new_summary_enabled;
     window._showThinking=s.show_thinking!==false;
     window._simplifiedToolCalling=s.simplified_tool_calling!==false;
