@@ -457,7 +457,11 @@ else
     fi
     uv pip install "$_stage_src[all]" --trusted-host pypi.org --trusted-host files.pythonhosted.org \
       || error_exit "Failed to install hermes-agent's requirements"
-    rm -rf "$_stage_src"
+    # Best-effort cleanup of the temp build dir. The install above is what
+    # matters; if the staged tree ended up with files this user can't remove
+    # (e.g. root-owned artifacts from the build backend), a failed cleanup must
+    # NOT abort startup under `set -e` — the dir is container-local scratch.
+    rm -rf "$_stage_src" 2>/dev/null || true
   else
     echo ""
     echo "!! WARNING: hermes-agent source not found."
