@@ -52,6 +52,11 @@ DRAIN_SECONDS="${DRAIN_SECONDS:-8}"
 # Pre-blue-green deploys ran a single container bound to the public port.
 # Removed once during migration so Caddy can claim the port; no-op afterwards.
 LEGACY_CONTAINER="${LEGACY_CONTAINER:-hermes-webui-ci}"
+# uid:gid the app container runs as (image default: hermeswebui 1024:1024).
+# A fresh named volume is root-owned, so the state volume must be chowned to
+# this before the container can write to HERMES_WEBUI_STATE_DIR.
+STATE_UID="${STATE_UID:-1024}"
+STATE_GID="${STATE_GID:-1024}"
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEPLOY_DIR="$REPO_DIR/deploy"
@@ -70,6 +75,13 @@ ensure_infra() {
 	docker volume inspect "$STATE_VOLUME" >/dev/null 2>&1 || {
 		log "creating volume $STATE_VOLUME"; docker volume create "$STATE_VOLUME" >/dev/null
 	}
+	# A fresh named volume is root-owned; the app runs as $STATE_UID:$STATE_GID
+	# and verifies HERMES_WEBUI_STATE_DIR is writable on boot. Chown the volume
+	# (idempotent) using the app image so we don't depend on another image.
+	log "ensuring state volume $STATE_VOLUME is owned by $STATE_UID:$STATE_GID"
+	docker run --rm --entrypoint chown -v "$STATE_VOLUME:/state" "$IMAGE" \
+		-R "$STATE_UID:$STATE_GID" /state >/dev/null 2>&1 \
+		|| log "WARN: could not chown state volume (continuing)"
 	if ! docker ps --format '{{.Names}}' | grep -qx "$CADDY_NAME"; then
 		# Free the public port before Caddy claims it. Remove ANY leftover
 		# container still publishing it — the legacy single-container deploy,
