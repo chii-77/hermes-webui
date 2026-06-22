@@ -21,7 +21,16 @@ docker run --rm -v "$PWD":/src -w /src python:3.12-slim sh -c '
       }
     }
     stage('Build') {
-      steps { sh 'docker build -t "$IMAGE" .' }
+      // Bake the real version into the image so the WebUI version badge shows a
+      // tag / short SHA instead of "unknown". Computed in the workspace (.git is
+      // present here; it's excluded from the image build context by .dockerignore).
+      steps {
+        sh '''
+HERMES_VERSION=$(git describe --tags --always 2>/dev/null || echo unknown)
+echo "Building with HERMES_VERSION=$HERMES_VERSION"
+docker build --build-arg HERMES_VERSION="$HERMES_VERSION" -t "$IMAGE" .
+'''
+      }
     }
     stage('Deploy') {
       steps {
