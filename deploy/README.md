@@ -10,10 +10,16 @@ browsers reconnect their SSE stream to the new WebUI automatically.
 
 | File | Role |
 |------|------|
-| `Caddyfile` | Public listener; imports the active upstream. Owns the port, never restarts on deploy. |
-| `upstream.active` | One-line `reverse_proxy` to the live color. **Rewritten by the deploy script** — don't hand-edit. |
+| `Caddyfile` | Public listener; proxies to the **fixed** `hermes-webui-active` Docker alias. Static — never rewritten. Owns the port, doesn't restart on deploy. |
 | `agent.compose.yml` | The long-lived `hermes-agent` gateway the WebUI connects to. Brought up once; its own lifecycle. |
-| `../scripts/deploy-bluegreen.sh` | The deploy: start idle color → wait healthy → flip upstream → `caddy reload` → drain → stop old. |
+| `../scripts/deploy-bluegreen.sh` | The deploy: start idle color → wait healthy → move the `hermes-webui-active` alias to it → `caddy reload` → drain → stop old. |
+
+> Routing uses a **Docker network alias** (`hermes-webui-active`), not a mutable
+> config file. The deploy reassigns the alias to the healthy color, so Caddy's
+> config never changes and can't drift out of sync — even across Caddy reloads
+> or restarts it always resolves to the live container. (Earlier versions wrote
+> the color into an `upstream.active` file Caddy imported; that file could get
+> left pointing at a stopped color → 502. The alias removes that whole class of bug.)
 
 ## Agent (one-time, long-lived)
 
@@ -38,11 +44,11 @@ agent's credentials/models in the `hermes-home` volume on first run.
 
 1. Start the idle color from the new image (on `hermes-net` with shared home/state volumes; not published).
 2. Wait for its Docker `HEALTHCHECK` to report `healthy`.
-3. Rewrite `upstream.active` to the new color.
-4. `caddy reload` — graceful, drops no in-flight connections.
-5. Drain a few seconds, then stop the old color.
+3. Move the `hermes-webui-active` alias onto the new color (both colors briefly carry it — Caddy round-robins between two healthy backends, no 502).
+4. `caddy reload` — graceful, re-resolves the alias; drops no in-flight connections.
+5. Drain a few seconds, then stop the old color (the alias now resolves only to the new color).
 
-If anything fails before step 3, the previous color keeps serving (rollback is free).
+If anything fails before step 3, the previous color keeps the alias and keeps serving (rollback is free).
 
 ## Usage
 

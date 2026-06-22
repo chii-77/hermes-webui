@@ -1,6 +1,0 @@
-# Active blue-green upstream — REWRITTEN BY scripts/deploy-bluegreen.sh.
-# Imported inside the site block of deploy/Caddyfile. Do not add a site
-# address here; this file holds directives only.
-reverse_proxy hermes-webui-green:8787 {
-	flush_interval -1
-}

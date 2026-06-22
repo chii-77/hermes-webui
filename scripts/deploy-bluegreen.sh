@@ -66,7 +66,13 @@ STATE_GID="${STATE_GID:-1024}"
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEPLOY_DIR="$REPO_DIR/deploy"
-UPSTREAM_FILE="$DEPLOY_DIR/upstream.active"
+# Caddy proxies to this fixed Docker network alias; the deploy reassigns it to
+# the healthy color. No mutable upstream file to drift out of sync (the cause of
+# past "Caddy points at a dead color → 502" outages).
+ACTIVE_ALIAS="${ACTIVE_ALIAS:-hermes-webui-active}"
+# Bump when the Caddy run config/model changes to force a one-time recreate of an
+# already-running Caddy (e.g. migrating off the old upstream.active file mount).
+CADDY_CONFIG_VERSION="alias-v1"
 
 log() { echo "[deploy] $*"; }
 die() { echo "[deploy] ERROR: $*" >&2; exit 1; }
@@ -97,13 +103,19 @@ ensure_infra() {
 		docker volume inspect "$HERMES_HOME_VOLUME" >/dev/null 2>&1 \
 			|| log "WARN: shared volume '$HERMES_HOME_VOLUME' not found — start the agent (deploy/agent.compose.yml) first, or the WebUI will run without an agent"
 	fi
-	if ! docker ps --format '{{.Names}}' | grep -qx "$CADDY_NAME"; then
-		# Free the public port before Caddy claims it. Remove ANY leftover
-		# container still publishing it — the legacy single-container deploy,
-		# or a half-created Caddy from a previously failed run (a failed
-		# `docker run -p` leaves the container holding the port until removed).
-		# Safe: this block only runs when Caddy isn't already up, so it can
-		# never kill a healthy Caddy. No-op once migrated.
+	# Make sure the currently-live color carries the active alias before Caddy
+	# starts/points at it (covers the one-time migration off the old file mount,
+	# where the running color has no alias yet). No-op in steady state.
+	local live; live="$(current_color || true)"
+	[ -n "$live" ] && ensure_active_alias "$(container_name "$live")"
+
+	# (Re)create Caddy when it's absent OR predates the current config model.
+	# The config-version label makes the migration recreate happen exactly once.
+	local caddy_cfg
+	caddy_cfg="$(docker inspect -f '{{index .Config.Labels "hermes.caddy.config"}}' "$CADDY_NAME" 2>/dev/null || true)"
+	if ! docker ps --format '{{.Names}}' | grep -qx "$CADDY_NAME" || [ "$caddy_cfg" != "$CADDY_CONFIG_VERSION" ]; then
+		# Free the public port from any stale publisher (legacy single-container
+		# deploy, the old-config Caddy we're replacing, or a half-created Caddy).
 		local stale_ids
 		stale_ids="$(docker ps -aq --filter "publish=${PUBLIC_PORT}" 2>/dev/null || true)"
 		if [ -n "$stale_ids" ]; then
@@ -114,14 +126,29 @@ ensure_infra() {
 			log "removing legacy pre-blue-green container: $LEGACY_CONTAINER"
 			docker rm -f "$LEGACY_CONTAINER" >/dev/null 2>&1 || true
 		fi
-		log "starting Caddy ($CADDY_NAME) on public port $PUBLIC_PORT"
+		log "starting Caddy ($CADDY_NAME) on public port $PUBLIC_PORT (config $CADDY_CONFIG_VERSION)"
 		docker rm -f "$CADDY_NAME" >/dev/null 2>&1 || true
 		docker run -d --name "$CADDY_NAME" --network "$NET" --restart unless-stopped \
+			--label "hermes.caddy.config=$CADDY_CONFIG_VERSION" \
 			-p "$PUBLIC_PORT:8899" \
 			-v "$DEPLOY_DIR/Caddyfile:/etc/caddy/Caddyfile:ro" \
-			-v "$DEPLOY_DIR/upstream.active:/etc/caddy/upstream.active:ro" \
 			"$CADDY_IMAGE" >/dev/null
 	fi
+}
+
+# Point the stable $ACTIVE_ALIAS at the given container. Idempotent: if it
+# already carries the alias, do nothing (avoid a needless network blip on a
+# serving container). Docker can't add an alias in place, so disconnect+reconnect
+# — safe because we only call this on the idle new color, or once on the live
+# color during migration.
+ensure_active_alias() {
+	local name="$1"
+	docker inspect -f '{{range .NetworkSettings.Networks}}{{range .Aliases}}{{println .}}{{end}}{{end}}' "$name" 2>/dev/null \
+		| grep -qx "$ACTIVE_ALIAS" && return 0
+	log "attaching alias $ACTIVE_ALIAS to $name"
+	docker network disconnect "$NET" "$name" >/dev/null 2>&1 || true
+	docker network connect --alias "$ACTIVE_ALIAS" "$NET" "$name" \
+		|| die "failed to attach $ACTIVE_ALIAS alias to $name"
 }
 
 caddy_reload() {
@@ -129,11 +156,9 @@ caddy_reload() {
 		--config /etc/caddy/Caddyfile --adapter caddyfile
 }
 
-# Detect the live color from the RUNNING containers, not upstream.active:
-# that file is git-tracked and Jenkins resets it to the committed default on
-# every checkout, so reading it would always report the same color and we'd
-# redeploy onto (and `docker rm -f`) the container that's currently serving —
-# causing downtime. Whichever webui container is actually up is the truth.
+# Detect the live color from the RUNNING containers. Whichever webui container
+# is actually up is the truth — we deploy to the other (idle) color so we never
+# touch what's serving.
 current_color() {
 	local c
 	for c in blue green; do
@@ -193,18 +218,6 @@ wait_healthy() {
 	die "$name did not become healthy within ${HEALTH_TIMEOUT}s"
 }
 
-flip_upstream() {
-	local color="$1"
-	log "flipping public traffic to $color"
-	cat > "$UPSTREAM_FILE" <<EOF
-# Active blue-green upstream — REWRITTEN BY scripts/deploy-bluegreen.sh.
-reverse_proxy $(container_name "$color"):$WEBUI_PORT {
-	flush_interval -1
-}
-EOF
-	caddy_reload
-}
-
 main() {
 	command -v docker >/dev/null || die "docker not found"
 	ensure_infra
@@ -220,7 +233,12 @@ main() {
 	# Healthy and about to serve: now enable auto-restart for the live phase.
 	docker update --restart unless-stopped "$(container_name "$new")" >/dev/null 2>&1 || true
 
-	flip_upstream "$new"
+	# Cut over by moving the active alias to the new color. Both old+new briefly
+	# carry it (Caddy round-robins between two healthy backends — no 502), then
+	# the reload re-resolves and we drain + drop the old color.
+	log "routing public traffic to $new via $ACTIVE_ALIAS"
+	ensure_active_alias "$(container_name "$new")"
+	caddy_reload || log "WARN: caddy reload failed (new connections still re-resolve to the alias)"
 
 	log "draining old color for ${DRAIN_SECONDS}s"
 	sleep "$DRAIN_SECONDS"
@@ -228,6 +246,7 @@ main() {
 	if [ -n "$old" ] && [ "$old" != "$new" ]; then
 		log "stopping old color: $old"
 		docker rm -f "$(container_name "$old")" >/dev/null 2>&1 || true
+		caddy_reload || true   # re-resolve now that only $new holds the alias
 	fi
 	log "deploy complete — serving $new on public port $PUBLIC_PORT"
 }

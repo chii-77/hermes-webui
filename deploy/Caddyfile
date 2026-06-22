@@ -1,10 +1,10 @@
 # Caddy reverse proxy for hermes-webui zero-downtime (blue-green) deploys.
 #
-# Caddy is the only container that owns the public port; it stays up across
-# deploys. The active backend (hermes-webui-blue / hermes-webui-green) lives
-# in the imported `upstream.active` snippet, which the deploy script rewrites
-# before issuing a graceful `caddy reload`. Reload swaps config without
-# dropping in-flight connections, so the public port is never unserved.
+# Caddy owns the public port and stays up across deploys. The upstream is the
+# FIXED Docker network alias `hermes-webui-active`, which scripts/deploy-bluegreen.sh
+# reassigns to whichever color (blue/green) is healthy and serving. Because this
+# config never changes, Caddy can never end up pointing at a dead color — even
+# across reloads or restarts it always resolves the alias to the live container.
 {
 	# Plain HTTP on the container port for parity with the existing CI setup.
 	# To terminate TLS, replace `:8899` below with your hostname and drop this.
@@ -15,8 +15,9 @@
 
 :8899 {
 	encode zstd gzip
-	# The active upstream is injected here and rewritten on each deploy.
 	# `flush_interval -1` disables response buffering so SSE / streaming
 	# (api/sessions/events, live agent output) is delivered immediately.
-	import /etc/caddy/upstream.active
+	reverse_proxy hermes-webui-active:8787 {
+		flush_interval -1
+	}
 }
