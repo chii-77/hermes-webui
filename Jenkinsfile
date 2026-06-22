@@ -35,6 +35,7 @@ IMAGE="$IMAGE" PUBLIC_PORT="$PORT" NET=hermes-net \
   AGENT_SRC_VOLUME=hermes-agent-src \
   STATE_DIR=/home/hermeswebui/.hermes/webui \
   STATE_UID=1000 STATE_GID=1000 \
+  HEALTH_TIMEOUT=600 \
   scripts/deploy-bluegreen.sh
 '''
       }

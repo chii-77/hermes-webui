@@ -140,9 +140,13 @@ run_webui() {
 	log "starting $name from $IMAGE"
 	docker rm -f "$name" >/dev/null 2>&1 || true
 
+	# No restart policy while starting: a failed init must exit and stay exited so
+	# the deploy fails cleanly with logs — never loop (a restart loop re-stages
+	# /tmp and then can't clean root-owned leftovers under set -e). The restart
+	# policy is enabled with `docker update` only after the color is healthy.
 	# WANTED_UID/GID make the container's hermeswebui user match the volume owner
 	# (image default 1024; in agent mode set to the agent's uid, e.g. 1000).
-	local args=(-d --name "$name" --network "$NET" --restart unless-stopped
+	local args=(-d --name "$name" --network "$NET"
 		-e HERMES_WEBUI_HOST=0.0.0.0
 		-e "HERMES_WEBUI_PORT=$WEBUI_PORT"
 		-e "HERMES_WEBUI_STATE_DIR=$STATE_DIR"
@@ -203,6 +207,9 @@ main() {
 
 	run_webui "$new"
 	wait_healthy "$(container_name "$new")"
+
+	# Healthy and about to serve: now enable auto-restart for the live phase.
+	docker update --restart unless-stopped "$(container_name "$new")" >/dev/null 2>&1 || true
 
 	flip_upstream "$new"
 
