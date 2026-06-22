@@ -129,10 +129,18 @@ caddy_reload() {
 		--config /etc/caddy/Caddyfile --adapter caddyfile
 }
 
-# Active color is the single source of truth: parse it from upstream.active.
+# Detect the live color from the RUNNING containers, not upstream.active:
+# that file is git-tracked and Jenkins resets it to the committed default on
+# every checkout, so reading it would always report the same color and we'd
+# redeploy onto (and `docker rm -f`) the container that's currently serving —
+# causing downtime. Whichever webui container is actually up is the truth.
 current_color() {
-	grep -oE 'hermes-webui-(blue|green)' "$UPSTREAM_FILE" 2>/dev/null \
-		| head -1 | sed 's/hermes-webui-//'
+	local c
+	for c in blue green; do
+		if docker ps --format '{{.Names}}' | grep -qx "$(container_name "$c")"; then
+			echo "$c"; return 0
+		fi
+	done
 }
 
 run_webui() {
