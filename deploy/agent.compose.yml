@@ -46,8 +46,13 @@ services:
       - hermes-net
 
 networks:
+  # Shared with the blue-green deploy (created by scripts/deploy-bluegreen.sh /
+  # Caddy via plain `docker network create`). external:true adopts that existing
+  # network instead of compose trying to own it. If it doesn't exist yet, create
+  # it first:  docker network create hermes-net
   hermes-net:
     name: hermes-net
+    external: true
 
 volumes:
   hermes-home:
