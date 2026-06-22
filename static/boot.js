@@ -1800,9 +1800,11 @@ function applyBotName(){
       if(vb){
         const wv=(s.webui_version||'').toString().trim();
         if(wv){
-          vb.textContent=wv;
+          // Append the blue-green slot when present: "ca12f65d · green".
+          const inst=(s.webui_instance||'').toString().trim();
+          vb.textContent = inst ? (wv+' · '+inst) : wv;
           const av=(s.agent_version||'').toString().trim();
-          vb.dataset.tooltip='WebUI '+wv+(av?(' · Agent '+av):'')+' — click for details';
+          vb.dataset.tooltip='WebUI '+wv+(inst?(' ('+inst+')'):'')+(av?(' · Agent '+av):'')+' — click for details';
           vb.hidden=false;
         }
       }

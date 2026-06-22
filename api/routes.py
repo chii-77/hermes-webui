@@ -5308,6 +5308,10 @@ def handle_get(handler, parsed) -> bool:
             settings["agent_version"] = AGENT_VERSION
         except Exception:
             pass
+        # Blue-green deploy slot (set by scripts/deploy-bluegreen.sh) so the UI
+        # badge can show which container is serving, e.g. "ca12f65d · green".
+        # Empty when not deployed via blue-green; the badge then shows version only.
+        settings["webui_instance"] = os.environ.get("HERMES_WEBUI_INSTANCE", "").strip()
         return j(handler, settings)
 
     if parsed.path == "/api/transcribe/capability":
