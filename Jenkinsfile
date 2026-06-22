@@ -30,9 +30,11 @@ docker run --rm -v "$PWD":/src -w /src python:3.12-slim sh -c '
         // flips Caddy's upstream with a graceful reload, then drains the old.
         // On failure before the flip the previous color keeps serving.
         sh '''
-IMAGE="$IMAGE" PUBLIC_PORT="$PORT" \
-  STATE_VOLUME=hermes-webui-ci-state \
-  STATE_DIR=/workspace/state \
+IMAGE="$IMAGE" PUBLIC_PORT="$PORT" NET=hermes-net \
+  HERMES_HOME_VOLUME=hermes-home HERMES_HOME=/home/hermeswebui/.hermes \
+  AGENT_SRC_VOLUME=hermes-agent-src \
+  STATE_DIR=/home/hermeswebui/.hermes/webui \
+  STATE_UID=1000 STATE_GID=1000 \
   scripts/deploy-bluegreen.sh
 '''
       }

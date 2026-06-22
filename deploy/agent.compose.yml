@@ -1,0 +1,56 @@
+# Hermes Agent — long-lived gateway for the blue-green WebUI deploy.
+#
+# Run ONCE on the deploy host (.18) and leave it up. The WebUI — deployed by
+# Jenkins via scripts/deploy-bluegreen.sh — connects to it over the shared
+# `hermes-net` network and the shared `hermes-home` / `hermes-agent-src`
+# volumes. The agent has its own lifecycle: WebUI deploys never restart it.
+#
+#   docker compose -f deploy/agent.compose.yml up -d
+#
+# Volumes/network use explicit `name:` so they are literally `hermes-home`,
+# `hermes-agent-src`, `hermes-net` (no compose project prefix) — matching the
+# HERMES_HOME_VOLUME / AGENT_SRC_VOLUME / NET values the deploy script uses.
+#
+# CREDENTIALS: the agent holds your model/API config in the `hermes-home`
+# volume. Configure it once on first run (run `hermes` setup inside the
+# container, or pre-seed the volume) or the agent starts but has no usable
+# models.
+#
+# UPGRADING the agent image: the `hermes-agent-src` volume is initialised from
+# the image's /opt/hermes on first up and reused verbatim afterwards. After
+# `docker pull` of a newer agent image:
+#   docker compose -f deploy/agent.compose.yml down
+#   docker volume rm hermes-agent-src
+#   docker compose -f deploy/agent.compose.yml pull
+#   docker compose -f deploy/agent.compose.yml up -d
+services:
+  hermes-agent:
+    image: nousresearch/hermes-agent:latest
+    container_name: hermes-agent
+    command: gateway run
+    restart: unless-stopped
+    # Gateway exposed on localhost only (host-side debugging). The WebUI reaches
+    # it in-network as http://hermes-agent:8642 regardless of this mapping.
+    ports:
+      - "127.0.0.1:8642:8642"
+    volumes:
+      - hermes-home:/home/hermes/.hermes
+      - hermes-agent-src:/opt/hermes
+    environment:
+      - HERMES_HOME=/home/hermes/.hermes
+      # Align with the WebUI's WANTED_UID/GID (STATE_UID/STATE_GID in the deploy)
+      # so the shared hermes-home volume is writable by both.
+      - HERMES_UID=${UID:-1000}
+      - HERMES_GID=${GID:-1000}
+    networks:
+      - hermes-net
+
+networks:
+  hermes-net:
+    name: hermes-net
+
+volumes:
+  hermes-home:
+    name: hermes-home
+  hermes-agent-src:
+    name: hermes-agent-src

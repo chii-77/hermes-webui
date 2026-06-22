@@ -28,6 +28,7 @@
 #   STATE_DIR             mount path for state in container (default /home/hermeswebui/.hermes/webui)
 #   HERMES_HOME_VOLUME    named/volume for shared agent home (default ""; empty = standalone, no agent)
 #   HERMES_HOME           mount path for HERMES_HOME        (default /home/hermes/.hermes)
+#   AGENT_SRC_VOLUME      agent source volume, ro-mounted for hermes_cli install (default "")
 #   WORKSPACE_MOUNT       host:container workspace bind     (default ""; empty = skip)
 #   WEBUI_PASSWORD        optional HERMES_WEBUI_PASSWORD    (default "")
 #   HEALTH_TIMEOUT        seconds to wait for healthy       (default 180)
@@ -45,6 +46,11 @@ STATE_VOLUME="${STATE_VOLUME:-hermes-webui-state}"
 STATE_DIR="${STATE_DIR:-/home/hermeswebui/.hermes/webui}"
 HERMES_HOME_VOLUME="${HERMES_HOME_VOLUME:-}"
 HERMES_HOME="${HERMES_HOME:-/home/hermes/.hermes}"
+# Agent source volume (the agent image's /opt/hermes). When set together with
+# HERMES_HOME_VOLUME, it is mounted read-only at $HERMES_HOME/hermes-agent so
+# docker_init.bash can `uv pip install` hermes_cli — without it the WebUI runs
+# standalone and reports "agent not imported". Provided by the agent container.
+AGENT_SRC_VOLUME="${AGENT_SRC_VOLUME:-}"
 WORKSPACE_MOUNT="${WORKSPACE_MOUNT:-}"
 WEBUI_PASSWORD="${WEBUI_PASSWORD:-}"
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-180}"
@@ -72,16 +78,25 @@ ensure_infra() {
 	docker network inspect "$NET" >/dev/null 2>&1 || {
 		log "creating network $NET"; docker network create "$NET" >/dev/null
 	}
-	docker volume inspect "$STATE_VOLUME" >/dev/null 2>&1 || {
-		log "creating volume $STATE_VOLUME"; docker volume create "$STATE_VOLUME" >/dev/null
-	}
-	# A fresh named volume is root-owned; the app runs as $STATE_UID:$STATE_GID
-	# and verifies HERMES_WEBUI_STATE_DIR is writable on boot. Chown the volume
-	# (idempotent) using the app image so we don't depend on another image.
-	log "ensuring state volume $STATE_VOLUME is owned by $STATE_UID:$STATE_GID"
-	docker run --rm --entrypoint chown -v "$STATE_VOLUME:/state" "$IMAGE" \
-		-R "$STATE_UID:$STATE_GID" /state >/dev/null 2>&1 \
-		|| log "WARN: could not chown state volume (continuing)"
+	if [ -z "$HERMES_HOME_VOLUME" ]; then
+		# Standalone mode: WebUI state lives in a dedicated named volume. A fresh
+		# named volume is root-owned, but the container runs as $STATE_UID:$STATE_GID
+		# and verifies HERMES_WEBUI_STATE_DIR is writable on boot — so chown it
+		# (idempotent) using the app image to avoid depending on another image.
+		docker volume inspect "$STATE_VOLUME" >/dev/null 2>&1 || {
+			log "creating volume $STATE_VOLUME"; docker volume create "$STATE_VOLUME" >/dev/null
+		}
+		log "ensuring state volume $STATE_VOLUME is owned by $STATE_UID:$STATE_GID"
+		docker run --rm --entrypoint chown -v "$STATE_VOLUME:/state" "$IMAGE" \
+			-R "$STATE_UID:$STATE_GID" /state >/dev/null 2>&1 \
+			|| log "WARN: could not chown state volume (continuing)"
+	else
+		# Agent-connected mode: HERMES_HOME (and the agent source volume) are owned
+		# by the agent container, which must already be running. State lives under
+		# the shared home, so no dedicated state volume is created here.
+		docker volume inspect "$HERMES_HOME_VOLUME" >/dev/null 2>&1 \
+			|| log "WARN: shared volume '$HERMES_HOME_VOLUME' not found — start the agent (deploy/agent.compose.yml) first, or the WebUI will run without an agent"
+	fi
 	if ! docker ps --format '{{.Names}}' | grep -qx "$CADDY_NAME"; then
 		# Free the public port before Caddy claims it. Remove ANY leftover
 		# container still publishing it — the legacy single-container deploy,
@@ -125,12 +140,24 @@ run_webui() {
 	log "starting $name from $IMAGE"
 	docker rm -f "$name" >/dev/null 2>&1 || true
 
+	# WANTED_UID/GID make the container's hermeswebui user match the volume owner
+	# (image default 1024; in agent mode set to the agent's uid, e.g. 1000).
 	local args=(-d --name "$name" --network "$NET" --restart unless-stopped
 		-e HERMES_WEBUI_HOST=0.0.0.0
 		-e "HERMES_WEBUI_PORT=$WEBUI_PORT"
 		-e "HERMES_WEBUI_STATE_DIR=$STATE_DIR"
-		-v "$STATE_VOLUME:$STATE_DIR")
-	[ -n "$HERMES_HOME_VOLUME" ] && args+=(-e "HERMES_HOME=$HERMES_HOME" -v "$HERMES_HOME_VOLUME:$HERMES_HOME")
+		-e "WANTED_UID=$STATE_UID"
+		-e "WANTED_GID=$STATE_GID")
+	if [ -n "$HERMES_HOME_VOLUME" ]; then
+		# Agent-connected: share the agent's HERMES_HOME and mount the agent source
+		# (ro) so docker_init.bash installs hermes_cli. State lives under the shared
+		# home (STATE_DIR), so no dedicated state volume is mounted.
+		args+=(-e "HERMES_HOME=$HERMES_HOME" -v "$HERMES_HOME_VOLUME:$HERMES_HOME")
+		[ -n "$AGENT_SRC_VOLUME" ] && args+=(-v "$AGENT_SRC_VOLUME:$HERMES_HOME/hermes-agent:ro")
+	else
+		# Standalone: dedicated state volume (created + chowned in ensure_infra).
+		args+=(-v "$STATE_VOLUME:$STATE_DIR")
+	fi
 	[ -n "$WORKSPACE_MOUNT" ] && args+=(-v "$WORKSPACE_MOUNT")
 	[ -n "$WEBUI_PASSWORD" ] && args+=(-e "HERMES_WEBUI_PASSWORD=$WEBUI_PASSWORD")
 

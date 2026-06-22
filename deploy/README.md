@@ -12,11 +12,31 @@ browsers reconnect their SSE stream to the new WebUI automatically.
 |------|------|
 | `Caddyfile` | Public listener; imports the active upstream. Owns the port, never restarts on deploy. |
 | `upstream.active` | One-line `reverse_proxy` to the live color. **Rewritten by the deploy script** — don't hand-edit. |
+| `agent.compose.yml` | The long-lived `hermes-agent` gateway the WebUI connects to. Brought up once; its own lifecycle. |
 | `../scripts/deploy-bluegreen.sh` | The deploy: start idle color → wait healthy → flip upstream → `caddy reload` → drain → stop old. |
+
+## Agent (one-time, long-lived)
+
+The WebUI image is minimal and contains no agent — it installs `hermes_cli`
+from the agent source at boot and reaches the agent gateway over the network.
+So a `hermes-agent` must be running for the WebUI to "open hermes"; without it
+the WebUI loads but reports *agent not imported*.
+
+Run the agent **once** on the deploy host and leave it up:
+
+```bash
+docker compose -f deploy/agent.compose.yml up -d
+```
+
+This creates the shared `hermes-net` network and the `hermes-home` /
+`hermes-agent-src` volumes (explicit names, no project prefix) that the deploy
+script mounts into each WebUI color. The agent is **not** restarted by WebUI
+deploys — push → CI → blue-green swap leaves it untouched. Configure the
+agent's credentials/models in the `hermes-home` volume on first run.
 
 ## How a deploy flows
 
-1. Start the idle color from the new image (shared network + state volume; not published).
+1. Start the idle color from the new image (on `hermes-net` with shared home/state volumes; not published).
 2. Wait for its Docker `HEALTHCHECK` to report `healthy`.
 3. Rewrite `upstream.active` to the new color.
 4. `caddy reload` — graceful, drops no in-flight connections.
@@ -27,22 +47,27 @@ If anything fails before step 3, the previous color keeps serving (rollback is f
 ## Usage
 
 ```bash
-# CI / standalone (no agent) — see Jenkinsfile Deploy stage
+# Agent-connected (the real deploy) — what the Jenkinsfile runs.
+# Requires `docker compose -f deploy/agent.compose.yml up -d` first.
+IMAGE=hermes-webui:ci PUBLIC_PORT=8899 NET=hermes-net \
+  HERMES_HOME_VOLUME=hermes-home HERMES_HOME=/home/hermeswebui/.hermes \
+  AGENT_SRC_VOLUME=hermes-agent-src \
+  STATE_DIR=/home/hermeswebui/.hermes/webui \
+  STATE_UID=1000 STATE_GID=1000 \
+  scripts/deploy-bluegreen.sh
+
+# Standalone (no agent) — WebUI loads but can't run hermes; for a pure UI smoke test.
 IMAGE=hermes-webui:ci PUBLIC_PORT=8899 \
   STATE_VOLUME=hermes-webui-ci-state STATE_DIR=/workspace/state \
   scripts/deploy-bluegreen.sh
-
-# Production with the three-container agent stack
-IMAGE=ghcr.io/nesquena/hermes-webui:latest PUBLIC_PORT=443 \
-  NET=hermes-net \
-  STATE_VOLUME=hermes-webui-state STATE_DIR=/home/hermeswebui/.hermes/webui \
-  HERMES_HOME_VOLUME=hermes-home HERMES_HOME=/home/hermes/.hermes \
-  WORKSPACE_MOUNT="$HOME/workspace:/workspace" \
-  scripts/deploy-bluegreen.sh
 ```
 
-All knobs (network, volumes, drain/health timeouts, password) are environment
-variables documented at the top of `scripts/deploy-bluegreen.sh`.
+When `HERMES_HOME_VOLUME` is set the script runs in **agent-connected** mode:
+it mounts the shared home + agent source (ro) and puts WebUI state under the
+shared home (both colors share it), and passes `WANTED_UID/GID=STATE_UID/GID`
+so the container matches the agent's volume owner. When it's empty the script
+runs **standalone**: a dedicated `STATE_VOLUME` chowned to `STATE_UID:STATE_GID`.
+All knobs are documented at the top of `scripts/deploy-bluegreen.sh`.
 
 ## Notes & limits
 
