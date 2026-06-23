@@ -6276,6 +6276,12 @@ async function loadSettingsPanel(){
       const agentVersion = (settings.agent_version || 'not detected').toString().trim() || 'not detected';
       agentBadge.textContent = `Agent: ${agentVersion}`;
     }
+    // Weather city for the on-load weather toast (localStorage-backed; default 新竹).
+    const weatherCityEl = $('settingsWeatherCity');
+    if(weatherCityEl){
+      try{ weatherCityEl.value = (localStorage.getItem('hermes-weather-city') || '新竹'); }
+      catch(_){ weatherCityEl.value = '新竹'; }
+    }
     // Hydrate appearance controls first so a slow /api/models request
     // cannot overwrite an in-progress theme/skin selection.
     const themeSel=$('settingsTheme');

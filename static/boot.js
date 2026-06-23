@@ -2104,6 +2104,20 @@ function applyBotName(){
   try{if(typeof renderSessionList==='function') void renderSessionList();}catch(_){}
 });
 
+// Weather toast on page open. Runs independently of the boot IIFE's many
+// early-return paths so it fires on every fresh load. Best-effort and fully
+// guarded: any failure (offline, blocked, missing helper) is silent, so it can
+// never break boot or the browser smoke test. City is editable in Settings →
+// Preferences (stored in localStorage; default 新竹). Weather is fetched via the
+// same-origin /api/weather proxy (the enforced CSP blocks direct external calls).
+(async()=>{
+  try{
+    const city=(localStorage.getItem('hermes-weather-city')||'新竹').trim();
+    const w=await api('/api/weather?city='+encodeURIComponent(city));
+    if(w&&w.ok&&w.display&&typeof showToast==='function') showToast(w.display,6000,'info');
+  }catch(_){}
+})();
+
 // Fix #822 (bfcache path): when the browser restores the page from the
 // back-forward cache, the async boot IIFE above does NOT re-run, but the
 // DOM — including any stale value in #sessionSearch — IS restored.  A

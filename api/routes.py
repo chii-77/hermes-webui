@@ -5314,6 +5314,56 @@ def handle_get(handler, parsed) -> bool:
         settings["webui_instance"] = os.environ.get("HERMES_WEBUI_INSTANCE", "").strip()
         return j(handler, settings)
 
+    if parsed.path == "/api/weather":
+        # Server-side weather proxy for the on-load weather toast. Fetched here
+        # (not from the browser) because the enforced CSP connect-src blocks
+        # external hosts — same-origin /api/weather is allowed. Best-effort:
+        # any failure returns {"ok": false} so the frontend silently skips.
+        from urllib.parse import urlencode
+        from urllib.request import urlopen
+        _wmo = {
+            0: ("☀️", "晴"), 1: ("🌤️", "大致晴朗"), 2: ("⛅", "多雲"), 3: ("☁️", "陰"),
+            45: ("🌫️", "霧"), 48: ("🌫️", "霧凇"),
+            51: ("🌦️", "毛毛雨"), 53: ("🌦️", "毛毛雨"), 55: ("🌦️", "毛毛雨"),
+            56: ("🌧️", "凍雨"), 57: ("🌧️", "凍雨"),
+            61: ("🌧️", "小雨"), 63: ("🌧️", "雨"), 65: ("🌧️", "大雨"),
+            66: ("🌧️", "凍雨"), 67: ("🌧️", "凍雨"),
+            71: ("🌨️", "小雪"), 73: ("🌨️", "雪"), 75: ("🌨️", "大雪"), 77: ("🌨️", "米雪"),
+            80: ("🌦️", "陣雨"), 81: ("🌦️", "陣雨"), 82: ("⛈️", "強陣雨"),
+            85: ("🌨️", "陣雪"), 86: ("🌨️", "強陣雪"),
+            95: ("⛈️", "雷雨"), 96: ("⛈️", "雷雨夾雹"), 99: ("⛈️", "雷雨夾雹"),
+        }
+        query = parse_qs(parsed.query)
+        city = ((query.get("city", [""])[0] or "").strip() or "新竹")[:60]
+        try:
+            geo_url = "https://geocoding-api.open-meteo.com/v1/search?" + urlencode(
+                {"name": city, "count": 1, "language": "zh", "format": "json"}
+            )
+            with urlopen(geo_url, timeout=4) as r:
+                results = (json.loads(r.read().decode("utf-8")).get("results") or [])
+            if not results:
+                return j(handler, {"ok": False, "error": "city_not_found"})
+            loc = results[0]
+            name = loc.get("name") or city
+            fc_url = "https://api.open-meteo.com/v1/forecast?" + urlencode(
+                {
+                    "latitude": loc["latitude"],
+                    "longitude": loc["longitude"],
+                    "current": "temperature_2m,weather_code",
+                }
+            )
+            with urlopen(fc_url, timeout=4) as r:
+                cur = (json.loads(r.read().decode("utf-8")).get("current") or {})
+            temp = cur.get("temperature_2m")
+            code = cur.get("weather_code")
+            emoji, desc = _wmo.get(int(code) if code is not None else -1, ("🌡️", "天氣"))
+            temp_str = f"{round(temp)}°C" if isinstance(temp, (int, float)) else ""
+            display = " ".join(x for x in (emoji, name, temp_str, desc) if x)
+            return j(handler, {"ok": True, "city": name, "temperature": temp,
+                               "weather_code": code, "display": display})
+        except Exception:
+            return j(handler, {"ok": False, "error": "fetch_failed"})
+
     if parsed.path == "/api/transcribe/capability":
         return handle_transcribe_capability(handler)
 
