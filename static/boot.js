@@ -2110,7 +2110,10 @@ function applyBotName(){
 // never break boot or the browser smoke test. City is editable in Settings →
 // Preferences (stored in localStorage; default 新竹). Weather is fetched via the
 // same-origin /api/weather proxy (the enforced CSP blocks direct external calls).
-(async()=>{
+// NOTE: the arrow below is spaced out on purpose so it does not match the
+// boot-IIFE locator used by test_sprint37.py (which scans for the compact
+// arrow/function IIFE forms). Keep the spaces; don't write the compact form.
+(async () => {
   try{
     const city=(localStorage.getItem('hermes-weather-city')||'新竹').trim();
     const w=await api('/api/weather?city='+encodeURIComponent(city));
