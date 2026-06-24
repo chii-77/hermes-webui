@@ -68,6 +68,8 @@ IMAGE=hermes-webui:ci PUBLIC_PORT=8899 \
   scripts/deploy-bluegreen.sh
 ```
 
+A rollback helper is available at `scripts/rollback.sh` for switching traffic back to the previous color when the prior container is still present.
+
 When `HERMES_HOME_VOLUME` is set the script runs in **agent-connected** mode:
 it mounts the shared home + agent source (ro) and puts WebUI state under the
 shared home (both colors share it), and passes `WANTED_UID/GID=STATE_UID/GID`

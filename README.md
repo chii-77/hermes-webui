@@ -49,6 +49,7 @@ This gives you nearly **1:1 parity with Hermes CLI from a convenient web UI** wh
 
 - [Why Hermes](#why-hermes) — what it is and how it compares
 - [Quick start](#quick-start) — clone + `bootstrap.py` / `start.sh` / `ctl.sh`
+- [CI/CD & Blue-Green Deployment](#cicd--blue-green-deployment) — Jenkins, Docker, Caddy, zero-downtime cutover
 - [Features](#features) — chat, sessions, workspace, voice, profiles, security, themes, panels, mobile
 - [Configuration & access](#configuration--access) — auto-discovery, overrides, remote/Tailscale/phone, manual launch
 - [Docker](#docker) — single- and multi-container deploys
@@ -134,6 +135,66 @@ For self-hosted VM or homelab installs, `ctl.sh` wraps the common daemon lifecyc
 ```
 
 `ctl.sh start` runs the bootstrap in foreground/no-browser mode behind the daemon wrapper, writes logs to `~/.hermes/webui.log`, and respects `.env` plus inline overrides such as `HERMES_WEBUI_HOST=0.0.0.0 ./ctl.sh start`.
+
+## CI/CD & Blue-Green Deployment
+
+This repo includes a Jenkins pipeline and zero-downtime Docker deployment for Hermes WebUI.
+
+- Jenkins pulls code from GitHub, runs tests, builds the Docker image, and deploys via Blue/Green cutover.
+- Caddy stays up on the public port and proxies to the fixed Docker network alias `hermes-webui-active`.
+- Deployment alternates between `hermes-webui-blue` and `hermes-webui-green`.
+- The new color is only put into service after the container's Docker health check passes.
+
+### Deployment flow
+
+```mermaid
+flowchart LR
+  Developer -->|push| GitHub
+  GitHub --> Jenkins
+  Jenkins --> Build
+  Build --> Test
+  Test --> DockerImage
+  DockerImage --> BlueGreenContainer
+  BlueGreenContainer --> HealthCheck
+  HealthCheck --> CaddySwitch
+  CaddySwitch --> User
+```
+
+### Quick reference
+
+- `Jenkinsfile` — pipeline definition used by Jenkins.
+- `scripts/deploy-bluegreen.sh` — start the idle color, wait for health, flip the alias, reload Caddy, stop old color.
+- `deploy/Caddyfile` — static reverse proxy to `hermes-webui-active:8787`.
+- `scripts/rollback.sh` — rollback helper for switching traffic back to the previous color.
+- `docs/deployment/README.md` — deployment reference and troubleshooting.
+
+For full deployment documentation, see [`docs/deployment/README.md`](docs/deployment/README.md).
+
+### Rollback helper
+
+Run the status check:
+
+```bash
+./scripts/rollback.sh status
+```
+
+Rollback traffic to the previous color when it is available:
+
+```bash
+./scripts/rollback.sh rollback
+```
+
+> Note: rollback is easiest when the previous color container still exists. If the old color has already been removed after a deploy, recreate it from the previous image.
+
+### Health check gating
+
+The Docker image includes a `HEALTHCHECK` against `/health`.
+The deploy script waits for the new container to become healthy before moving traffic, so deployment failures do not cut over to an unhealthy backend.
+
+### Local vs production
+
+For local Docker testing, use `docker compose up -d` or `docker compose -f docker-compose.two-container.yml up -d`.
+For Jenkins-driven, zero-downtime production deployment, use the repository's Jenkins pipeline plus `scripts/deploy-bluegreen.sh`.
 
 ### Advanced: dynamic recall prefill & Gateway-backed chat
 
